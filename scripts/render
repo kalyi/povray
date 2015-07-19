@@ -1,0 +1,219 @@
+#!/bin/bash
+#
+# This is a very simple rendering and animation creation wrapper for
+# POV-Ray scenes.
+# 
+# Copyright (C) 2015 Kathrin Hanauer
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+
+#----------------------------------------------------------------------
+# Adjust the following settings to your needs.
+#----------------------------------------------------------------------
+# POV-Ray binary:
+POVRAY=$(which povray)
+#POVRAY=/usr/local/bin/povray
+#POVRAY=/usr/bin/povray
+
+# Default values for width and height:
+WIDTH=800
+HEIGHT=600
+
+# POV-Ray file extension:
+POV_EXT="pov"
+
+# Default parameters passed to POV-Ray:
+POV_PARAMS=""
+
+# Animation parameters:
+POV_INIT="1"
+POV_FINAL="50"
+ANIM_PARAMS=""
+
+# Create video:
+VIDEO_TOOL="ffmpeg"
+VIDEO_PARAMS="-y -r 10"
+#----------------------------------------------------------------------
+
+#----------------------------------------------------------------------
+# Function definitions
+#----------------------------------------------------------------------
+printHelp () {
+  echo -e "Usage:"
+  echo -e "$0 [animation] <DIMENSION> <FILES>"
+  echo -e "    where DIMENSION may be e.g. one of 800x600 | 1024x768 | 1280x1024"
+  echo -e "    and   FILES     are valid POV-Ray source files."
+}
+
+error () {
+  if [ $# -ge 1 ]
+  then
+    echo -e "Error: $1"
+    echo -e
+  fi
+  printHelp
+  exit 1
+}
+
+isDimension () {
+  local DIM=$1
+  case ${DIM} in
+  [1-9][0-9]*x[1-9][0-9]*)
+    return 0
+  ;;
+  *)
+    return 1
+  ;;
+  esac
+}
+
+parseDimension () {
+  local DIMS=($(echo "$1" | tr 'x' ' '))
+  WIDTH=${DIMS[0]}
+  HEIGHT=${DIMS[1]}
+
+  # The following check should be uncessary,
+  # but let's be veeeeeery defensive...
+  if [ -z ${WIDTH} ] || [ -z "${HEIGHT}" ] || [ -n "${DIMS[2]}" ]
+  then
+    error "Invalid dimension specified: $1"
+  else
+    [ "${WIDTH}"  -gt 0 ] 2> /dev/null
+    local WRET=$?
+    [ "${HEIGHT}" -gt 0 ] 2> /dev/null
+    local HRET=$?
+    if [ "$WRET" -ne 0 ]
+    then
+      error "Invalid width specified: ${WIDTH}"
+    elif [ "$HRET" -ne 0 ]
+    then
+      error "Invalid height specified: ${HEIGHT}"
+    fi
+  fi
+}
+
+isPovrayFile () {
+  local FILE=$1
+  if [ ! -f ${FILE} ]
+  then
+    return 1
+  fi
+  local FILENAME=$(basename "${FILE}")
+  local EXT="${FILENAME##*.}"
+  if [ ${EXT} -ne ${POV_EXT} ]
+  then
+    return 1
+  fi
+  return 0
+}
+
+extractBase () {
+  local FILE=$1
+  local FILENAME=$(basename "${FILE}")
+  local BASE="${FILENAME%.*}"
+  echo "${BASE}"
+}
+#----------------------------------------------------------------------
+
+#----------------------------------------------------------------------
+# Main
+#----------------------------------------------------------------------
+
+POV_FILES=""
+NUM_PF=0
+ANIMATE=0
+
+# Scan arguments
+until [ -z "$1" ]
+do
+  ARG=$1
+  STRIPPED_ARG=$(echo "${ARG}" | tr -d '-')
+  if [ "${STRIPPED_ARG}" == "help" ] || [ "${STRIPPED_ARG}" == "h" ]
+  then
+    printHelp
+    exit 0
+  fi
+  isDimension ${ARG}
+  IS_DIM=$?
+  if [ "${IS_DIM}" -eq 0 ]
+  then
+    parseDimension ${ARG}
+  else
+    isPovrayFile ${ARG}
+    IS_PF=$?
+    if [ ${IS_PF} -eq 0 ]
+    then
+      POV_FILES="${POV_FILES} ${ARG}"
+      NUM_PF=$((NUM_PF+1))
+    elif [ "${ARG}" == "animation" ]
+    then
+      ANIMATE=1
+    else
+      error "Invalid argument ${ARG}"
+    fi
+  fi
+  shift
+done
+
+# If no POV-Ray files have been specified,
+# try to find them automagically...
+if [ -z ${POV_FILES} ]
+then
+  AUTO_PF=$(ls *.${POV_EXT} 2>/dev/null)
+  if [ -z "${AUTO_PF}" ]
+  then
+    error "No POV-Ray files (*.${POV_EXT}) have been found."
+  else
+    POV_FILES="${AUTO_PF}"
+    NUM_PF=$(ls *.${POV_EXT} | wc -l)
+  fi
+fi
+
+# Suppress pausing if we render an animation or multiple scenes
+if [ "${ANIMATE}" -eq 1 ] || [ "${NUM_PF}" -gt 1 ]
+then
+  POV_PARAMS="${POV_PARAMS} -P"
+else
+  POV_PARAMS="${POV_PARAMS} +P"
+fi
+
+# Add animation parameters if needed
+if [ "${ANIMATE}" -eq 1 ]
+then
+  POV_PARAMS="${POV_PARAMS} Initial_Frame=${POV_INIT} Final_Frame=${POV_FINAL} ${ANIM_PARAMS}"
+fi
+
+# FIRE!
+for FILE in ${POV_FILES}
+do
+  CMD="${POVRAY} +W${WIDTH} +H${HEIGHT} +I${FILE} ${POV_PARAMS}"
+  echo -e "Running command: $CMD"
+  $CMD
+done
+
+# Create video
+if [ ${ANIMATE} -eq 1 ]
+then
+  for FILE in ${POV_FILES}
+  do
+    FRAME_CHARS=$(echo -n ${POV_FINAL} | wc -m)
+    BASENAME=$(extractBase $FILE)
+    CMD="${VIDEO_TOOL} -i ${BASENAME}%0${FRAME_CHARS}d.png ${BASENAME}.mp4"
+    echo -e "Running command: $CMD"
+    $CMD
+  done
+fi
+#----------------------------------------------------------------------
+
