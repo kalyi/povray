@@ -52,9 +52,20 @@ VIDEO_PARAMS="-y -r 10"
 #----------------------------------------------------------------------
 printHelp () {
   echo -e "Usage:"
-  echo -e "$0 [animation] <DIMENSION> <FILES>"
-  echo -e "    where DIMENSION may be e.g. one of 800x600 | 1024x768 | 1280x1024"
-  echo -e "    and   FILES     are valid POV-Ray source files."
+  echo -e
+  echo -e "$0 [animation[=<FRAMES>]] [<DIMENSION>] [<FILES>]"
+  echo -e
+  echo -e "    <DIMENSION> : two positive integers WIDTH and HEIGHT specified as \"WIDTHxHEIGHT\","
+  echo -e "                  e.g. 800x600 | 1024x768 | 1280x1024,"
+  echo -e "                  defaults to ${WIDTH}x${HEIGHT} if not specified."
+  echo -e "        <FILES> : one or more valid POV-Ray scene files, separated by whitespace"
+  echo -e "                  defaults to *.pov if not specified."
+  echo -e
+  echo -e "    Specifying the parameter \"animation\" results in the rendering of multiple frames"
+  echo -e "    during which the clock value increases stepwise from 0 to 1."
+  echo -e "       <FRAMES> : the number of frames to render,"
+  echo -e "                  e.g. animation=100 renders 100 frames with numbers 1..100,"
+  echo -e "                  defaults to ${POV_FINAL} if not specified."
 }
 
 error () {
@@ -157,11 +168,23 @@ do
     then
       POV_FILES="${POV_FILES} ${ARG}"
       NUM_PF=$((NUM_PF+1))
-    elif [ "${ARG}" == "animation" ]
-    then
-      ANIMATE=1
-    else
-      error "Invalid argument ${ARG}"
+		else
+      ANIM_PARTS=($(echo "${ARG}" | tr '=' ' '))
+      ANIM_KEY=${ANIM_PARTS[0]}
+      ANIM_FRAMES=${ANIM_PARTS[1]}
+      if [ "${ANIM_KEY}" == "animation" ]
+      then
+        ANIMATE=1
+				case ${ANIM_FRAMES} in
+				[1-9][0-9]*)
+				  POV_FINAL=${ANIM_FRAMES}
+					;;
+				*)
+				  ;;
+				esac
+      else
+        error "Invalid argument ${ARG}"
+			fi
     fi
   fi
   shift
